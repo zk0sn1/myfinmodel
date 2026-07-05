@@ -380,15 +380,14 @@ The spec defines normative variable names. Where the current code diverges, rena
 
 ### Phase 5 — Integration, Polish, and Test Coverage
 
-**Goal:** Wire all modules together in `app.py`, ensure end-to-end flow works, add comprehensive tests, and clean up deprecated code.
+**Goal:** Wire all modules together in `app.py`, ensure end-to-end flow works, expand test coverage, and perform final verification. (Deprecated module cleanup is handled in earlier phases — see §7.2.)
 
 **Deliverables:**
 1. Update `app.py` to wire new modules (inputs → validate → simulate → display)
 2. Implement state management per spec §6.3
-3. Remove deprecated `simulation/monte_carlo.py` and old test file
-4. Expand test suite for edge cases (spec §7)
-5. Performance verification
-6. Final code review pass for spec compliance
+3. Expand test suite for edge cases (spec §7)
+4. Performance verification
+5. Final code review pass for spec compliance
 
 **Details:**
 
@@ -413,17 +412,11 @@ The spec defines normative variable names. Where the current code diverges, rena
 - Spending tier gaps block run
 - No-results prompt on Results tab
 
-5.4 **Deprecation cleanup:**
-- Remove `simulation/monte_carlo.py`
-- Remove `tests/test_monte_carlo.py`
-- Remove old `GuardrailModel` enum (replaced by independent GR toggles)
-- Update all imports
-
-5.5 **Performance verification:**
+5.4 **Performance verification:**
 - Benchmark: 1000 paths × 35 years < 5 seconds
 - If exceeded, profile and optimize vectorization
 
-**Acceptance:** Full end-to-end simulation runs; all spec edge cases handled; deprecated code removed; test coverage >90% on engine and validators; performance target met.
+**Acceptance:** Full end-to-end simulation runs; all spec edge cases handled; test coverage >90% on engine and validators; performance target met.
 
 ---
 
@@ -640,11 +633,25 @@ def validate_inputs(inputs: SimulationInputs) -> ValidationResult:
 
 ### 7.2 Recommended Migration Path
 
-Since the current scaffold is small and the spec requires near-total rewrite of logic, the recommended approach is:
+Since the app is **not currently in use** and the spec requires near-total rewrite of logic, the recommended approach is to **replace in place** rather than building in parallel:
 
-1. Build new modules alongside existing ones (no breakage during development)
-2. Switch `app.py` to new modules once Phase 3–4 are complete
-3. Remove deprecated modules in Phase 5 only after new code is fully tested
+1. Rewrite/replace modules directly — no need to keep old code running alongside new code
+2. Delete deprecated modules at the end of the phase that replaces them (not deferred to Phase 5)
+3. The app may be non-functional between phases — this is acceptable given no active users
+
+**Per-phase deletion schedule:**
+
+| Deprecated File | Delete At | Reason |
+| --- | --- | --- |
+| `simulation/monte_carlo.py` | End of Phase 2 | Replaced by `simulation/engine.py`; keep readable (not imported) during Phase 2 as reference |
+| `tests/test_monte_carlo.py` | End of Phase 2 | Replaced by `tests/test_engine.py` |
+| `tests/test_models.py` (old) | End of Phase 1 | Replaced by new `tests/test_models.py` for rewritten models |
+| Old `GuardrailModel` enum | End of Phase 1 | Removed as part of `models.py` rewrite |
+
+**Note:** This approach does not harm the testing plan because:
+- Tests are rewritten per phase with their own acceptance gates
+- Old tests assert against types that no longer exist after Phase 1 (cannot run anyway)
+- New tests provide equivalent or greater coverage before old files are deleted
 
 ### 7.3 Files to Create (New)
 
@@ -667,10 +674,11 @@ Since the current scaffold is small and the spec requires near-total rewrite of 
 - `app.py` — significant restructure
 - `tests/test_models.py` — rewrite for new model structure
 
-### 7.5 Files to Remove (After Migration)
+### 7.5 Files to Remove (per-phase deletion — see §7.2)
 
-- `simulation/monte_carlo.py`
-- `tests/test_monte_carlo.py`
+- `simulation/monte_carlo.py` — end of Phase 2
+- `tests/test_monte_carlo.py` — end of Phase 2
+- `tests/test_models.py` (original) — end of Phase 1 (replaced in same phase)
 
 ---
 
@@ -720,7 +728,7 @@ These should be resolved at the start of each phase:
 2. **Phase 2:** Should the engine return a dict (spec literal) or a typed dataclass wrapping the dict for IDE support?
 3. **Phase 3:** Should spending tiers use `st.data_editor` (newer API) or manual `st.columns` rows?
 4. **Phase 4:** For Table 5 (full path export), what is the maximum n_paths threshold before showing a size warning?
-5. **Phase 5:** Should deprecated modules be removed in a separate commit for clean git history?
+5. ~~**Phase 5:** Should deprecated modules be removed in a separate commit for clean git history?~~ Resolved: deprecated modules are removed at end of each replacing phase (see §7.2).
 
 ---
 
