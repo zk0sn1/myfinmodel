@@ -2,7 +2,9 @@
 
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[1]
+# __file__ is not defined when PyInstaller executes a .spec file.
+# SPECPATH points to the folder containing this spec (packaging/).
+BASE_DIR = Path(SPECPATH).resolve().parent
 
 
 def collect_tree(source_dir: str, destination_root: str) -> list[tuple[str, str]]:
@@ -36,7 +38,7 @@ block_cipher = None
 
 
 a = Analysis(
-    ["packaging/launcher/__main__.py"],
+    [str(BASE_DIR / "packaging/launcher/__main__.py")],
     pathex=[str(BASE_DIR)],
     binaries=[],
     datas=datas,
