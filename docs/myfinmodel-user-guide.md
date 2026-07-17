@@ -356,9 +356,18 @@ Notes:
 - **ACA metrics showing N/A:** Check both toggles: ACA Guardrail (Health section) and GR3 ACA Guardrail (Guardrail section).
 - **Full path export is slow/large:** Start with summary tables first, or reduce path count before exporting full path-level data.
 
-### 8.4 Remaining Proposed Additions
+### 8.4 Example Walkthroughs and Next Additions
 
-1. **Worked Example Scenario (proposed):** A full baseline scenario with concrete inputs and a short interpretation walkthrough.
-2. **Sensitivity Playbook (proposed):** A checklist for what to vary first (spending, horizon, return assumptions, guardrails) and by how much.
-3. **Compare Tab Method Notes (proposed):** Explain delta interpretation and how differing horizons are padded in overlays.
+Worked examples were moved to a separate companion document:
+
+- [myfinmodel-examples.md](myfinmodel-examples.md)
+
+This companion document includes:
+
+1. **Worked Example Scenario**
+2. **Sensitivity Playbook**
+3. **Compare Tab Method Notes**
+
+Remaining proposed addition in this guide:
+
 4. **Versioned Assumption Log (proposed):** Track major model assumption changes across releases.
