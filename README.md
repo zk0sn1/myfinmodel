@@ -2,7 +2,7 @@
 
 Monte Carlo Retirement Planner is a Streamlit app that simulates thousands of retirement portfolio outcomes using correlated return and inflation draws, then applies up to four dynamic guardrail rules — portfolio value, withdrawal rate, ACA MAGI, and inflation — to adjust spending automatically each year. Users configure custom spending tiers (front-loaded early retirement, post–Social Security, late-life), choose from preset or custom portfolio styles, and explore results through interactive percentile fan charts, guardrail event analysis, survival metrics, and downloadable data tables. It's built for early retirees, pre-Medicare households managing ACA cliffs, and anyone who wants a transparent, reproducible alternative to static spreadsheet projections.
 
-Check out `docs/myfinmodel-user-guide.md` for details on using the app.
+Check out `docs/myfinmodel-user-guide.md` for the full app guide and `docs/myfinmodel-examples.md` for example walkthroughs, interpretation notes, and compare-method guidance.
 
 Dependency management and execution are uv-first in this repository.
 The project intentionally uses `pyproject.toml` + `uv.lock` as the dependency source of truth.
@@ -21,20 +21,6 @@ uv sync --group dev
 uv run streamlit run app.py --server.address localhost
 ```
 See "Portable distribution" section for other setup and run options.
-
-### Development checks
-
-Run tests:
-
-```bash
-uv run pytest tests/ -v
-```
-
-Run slow/performance tests only:
-
-```bash
-uv run pytest -m slow -v
-```
 
 ## Portable distribution (zip, no installer)
 
@@ -69,6 +55,20 @@ Expected output:
 4. Confirm the default browser opens on localhost and the app loads.
 
 Keep the extracted folder contents together, including `_internal` and `MyFinModelLauncher.exe`.
+
+### Development checks
+
+Run tests:
+
+```bash
+uv run pytest tests/ -v
+```
+
+Run slow/performance tests only:
+
+```bash
+uv run pytest -m slow -v
+```
 
 ## Notes
 
