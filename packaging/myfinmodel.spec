@@ -42,7 +42,7 @@ block_cipher = None
 
 
 a = Analysis(
-    [str(BASE_DIR / "packaging/launcher/__main__.py")],
+    [str(BASE_DIR / "packaging/launcher/main.py")],
     pathex=[str(BASE_DIR)],
     binaries=[],
     datas=datas,
