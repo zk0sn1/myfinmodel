@@ -25,6 +25,7 @@ LOCALHOST = "127.0.0.1"
 STREAMLIT_HEALTH_PATH = "/_stcore/health"
 ACTIVE_PORT_FILE_NAME = "active-port.txt"
 HTTP_PROBE_BODY_BYTES = 256
+HTTP_PROBE_TIMEOUT_SECONDS = 1
 
 
 def _logs_dir() -> Path:
@@ -134,7 +135,7 @@ def _http_ok(
     expected_content_type: str | None = None,
 ) -> bool:
     try:
-        with urllib_request.urlopen(url, timeout=1) as response:
+        with urllib_request.urlopen(url, timeout=HTTP_PROBE_TIMEOUT_SECONDS) as response:
             if response.status != 200:
                 return False
 
@@ -150,19 +151,20 @@ def _http_ok(
                 response.read(HTTP_PROBE_BODY_BYTES)
                 .decode("utf-8", errors="ignore")
                 .strip()
-                .lower()
             )
-            return expected_body.lower() in body
+            return body == expected_body
     except (OSError, ValueError, urllib_error.URLError):
         return False
 
 
 def _is_streamlit_ready(port: int) -> bool:
     base_url = f"http://{LOCALHOST}:{port}"
-    return _http_ok(
+    if not _http_ok(
         f"{base_url}{STREAMLIT_HEALTH_PATH}",
         expected_body="ok",
-    ) and _http_ok(base_url, expected_content_type="text/html")
+    ):
+        return False
+    return _http_ok(base_url, expected_content_type="text/html")
 
 
 def _wait_for_streamlit_ready(port: int, timeout_seconds: int) -> bool:
@@ -262,17 +264,16 @@ def main() -> int:
         _notify_user(f"{APP_NAME} failed to start: {exc}")
         return 1
 
-    # Start browser opener in a background thread
-    browser_thread = threading.Thread(
-        target=_wait_and_open_browser,
-        args=(port, logger, _notify_user),
-        daemon=True,
-    )
-    browser_thread.start()
-
     try:
+        browser_thread = threading.Thread(
+            target=_wait_and_open_browser,
+            args=(port, logger, _notify_user),
+            daemon=True,
+        )
+        browser_thread.start()
         _run_streamlit(str(app_path), port)
     except Exception as exc:
+        _clear_active_port(port)
         logger.exception("Failed to start Streamlit: %s", exc)
         _notify_user(f"{APP_NAME} failed to start: {exc}")
         return 1

@@ -22,11 +22,12 @@ def test_find_existing_instance_port_waits_for_recorded_port(tmp_path, monkeypat
     launcher._write_active_port(8503)
 
     waited_on_ports: list[int] = []
-    monkeypatch.setattr(
-        launcher,
-        "_wait_for_streamlit_ready",
-        lambda port, timeout: waited_on_ports.append(port) or True,
-    )
+
+    def _ready_after_wait(port, timeout):
+        waited_on_ports.append(port)
+        return True
+
+    monkeypatch.setattr(launcher, "_wait_for_streamlit_ready", _ready_after_wait)
 
     assert launcher._find_existing_instance_port(launcher.STARTUP_TIMEOUT_SECONDS) == 8503
     assert waited_on_ports == [8503]
