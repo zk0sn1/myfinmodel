@@ -24,7 +24,6 @@ POLL_INTERVAL_SECONDS = 0.25
 LOCALHOST = "127.0.0.1"
 STREAMLIT_HEALTH_PATH = "/_stcore/health"
 ACTIVE_PORT_FILE_NAME = "active-port.txt"
-HTTP_PROBE_BODY_BYTES = 256
 HTTP_PROBE_TIMEOUT_SECONDS = 1
 
 
@@ -147,11 +146,7 @@ def _http_ok(
             if expected_body is None:
                 return True
 
-            body = (
-                response.read(HTTP_PROBE_BODY_BYTES)
-                .decode("utf-8", errors="ignore")
-                .strip()
-            )
+            body = response.read().decode("utf-8", errors="ignore").strip()
             return body == expected_body
     except (OSError, ValueError, urllib_error.URLError):
         return False
@@ -199,6 +194,30 @@ def _open_browser(port: int, logger: logging.Logger) -> None:
         logger.exception("Failed to open browser: %s", exc)
 
 
+def _streamlit_runtime_settings(port: int) -> tuple[dict[str, str], dict[str, object]]:
+    option_values: dict[str, object] = {
+        "server.headless": True,
+        "browser.gatherUsageStats": False,
+        "server.port": port,
+        "server.address": LOCALHOST,
+        "server.baseUrlPath": "",
+        "server.runOnSave": False,
+        "server.fileWatcherType": "none",
+        "global.developmentMode": False,
+    }
+    env_values = {
+        "STREAMLIT_SERVER_HEADLESS": "true",
+        "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
+        "STREAMLIT_SERVER_PORT": str(port),
+        "STREAMLIT_SERVER_ADDRESS": LOCALHOST,
+        "STREAMLIT_SERVER_BASE_URL_PATH": "",
+        "STREAMLIT_SERVER_RUN_ON_SAVE": "false",
+        "STREAMLIT_SERVER_FILE_WATCHER_TYPE": "none",
+        "STREAMLIT_GLOBAL_DEVELOPMENT_MODE": "false",
+    }
+    return env_values, option_values
+
+
 def _wait_and_open_browser(port: int, logger: logging.Logger, notify_user=None) -> None:
     if not _wait_for_streamlit_ready(port, STARTUP_TIMEOUT_SECONDS):
         logger.error("Streamlit did not start within timeout (%ds).", STARTUP_TIMEOUT_SECONDS)
@@ -210,26 +229,14 @@ def _wait_and_open_browser(port: int, logger: logging.Logger, notify_user=None) 
 
 
 def _run_streamlit(app_path: str, port: int) -> None:
-    os.environ["STREAMLIT_SERVER_HEADLESS"] = "true"
-    os.environ["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
-    os.environ["STREAMLIT_SERVER_PORT"] = str(port)
-    os.environ["STREAMLIT_SERVER_ADDRESS"] = LOCALHOST
-    os.environ["STREAMLIT_SERVER_BASE_URL_PATH"] = ""
-    os.environ["STREAMLIT_SERVER_RUN_ON_SAVE"] = "false"
-    os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-    os.environ["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
+    env_values, option_values = _streamlit_runtime_settings(port)
+    os.environ.update(env_values)
 
     import streamlit.web.bootstrap as bootstrap
     from streamlit import config as _config
 
-    _config.set_option("server.headless", True)
-    _config.set_option("browser.gatherUsageStats", False)
-    _config.set_option("server.port", port)
-    _config.set_option("server.address", LOCALHOST)
-    _config.set_option("server.baseUrlPath", "")
-    _config.set_option("server.runOnSave", False)
-    _config.set_option("server.fileWatcherType", "none")
-    _config.set_option("global.developmentMode", False)
+    for option_name, option_value in option_values.items():
+        _config.set_option(option_name, option_value)
 
     bootstrap.run(app_path, False, [], {})
 
