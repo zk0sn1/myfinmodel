@@ -3,7 +3,7 @@ MyFinModel Portable (Zip) - Quick Start
 1) Extract the full zip file to a writable folder.
 2) Open the extracted MyFinModel folder.
 3) Double-click launch_myfinmodel.bat.
-4) Wait for your default browser to open to localhost.
+4) Wait for your default browser to open to the local app URL (usually http://localhost:8501).
 
 Notes:
 - Keep the entire extracted folder together (including _internal).

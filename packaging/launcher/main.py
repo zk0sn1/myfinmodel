@@ -17,13 +17,15 @@ from urllib import request as urllib_request
 
 APP_NAME = "MyFinModel"
 PREFERRED_PORT = 8501
-MAX_PORT = 8510
+STREAMLIT_PORT_SEARCH_RETRIES = 100
+MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
-STARTUP_TIMEOUT_SECONDS = 20
+STARTUP_TIMEOUT_SECONDS = 45
 POLL_INTERVAL_SECONDS = 0.25
 LOCALHOST = "127.0.0.1"
 STREAMLIT_HEALTH_PATH = "/_stcore/health"
 ACTIVE_PORT_FILE_NAME = "active-port.txt"
+STARTUP_LOCK_FILE_NAME = "launcher-starting.lock"
 HTTP_PROBE_TIMEOUT_SECONDS = 1
 
 
@@ -92,6 +94,10 @@ def _active_port_file() -> Path:
     return _logs_dir() / ACTIVE_PORT_FILE_NAME
 
 
+def _startup_lock_file() -> Path:
+    return _logs_dir() / STARTUP_LOCK_FILE_NAME
+
+
 def _read_active_port() -> int | None:
     try:
         raw_value = _active_port_file().read_text(encoding="utf-8").strip()
@@ -111,6 +117,39 @@ def _read_active_port() -> int | None:
 def _write_active_port(port: int) -> None:
     _active_port_file().parent.mkdir(parents=True, exist_ok=True)
     _active_port_file().write_text(str(port), encoding="utf-8")
+
+
+def _acquire_startup_lock(timeout_seconds: int) -> bool:
+    startup_lock_file = _startup_lock_file()
+    startup_lock_file.parent.mkdir(parents=True, exist_ok=True)
+
+    while True:
+        try:
+            fd = os.open(startup_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age_seconds = time.time() - startup_lock_file.stat().st_mtime
+            except FileNotFoundError:
+                continue
+
+            if age_seconds > timeout_seconds:
+                try:
+                    startup_lock_file.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            return False
+
+        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+            lock_file.write(str(os.getpid()))
+        return True
+
+
+def _release_startup_lock() -> None:
+    try:
+        _startup_lock_file().unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _clear_active_port(expected_port: int | None = None) -> None:
@@ -171,6 +210,23 @@ def _wait_for_streamlit_ready(port: int, timeout_seconds: int) -> bool:
     return False
 
 
+def _find_ready_streamlit_port() -> int | None:
+    for port in _iterate_candidate_ports():
+        if not _is_port_available(port) and _is_streamlit_ready(port):
+            return port
+    return None
+
+
+def _wait_for_new_streamlit_port(timeout_seconds: int) -> int | None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        ready_port = _find_ready_streamlit_port()
+        if ready_port is not None:
+            return ready_port
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return None
+
+
 def _find_existing_instance_port(timeout_seconds: int) -> int | None:
     active_port = _read_active_port()
     if active_port is not None:
@@ -179,10 +235,7 @@ def _find_existing_instance_port(timeout_seconds: int) -> int | None:
         if _is_port_available(active_port):
             _clear_active_port(active_port)
 
-    for port in _iterate_candidate_ports():
-        if not _is_port_available(port) and _is_streamlit_ready(port):
-            return port
-    return None
+    return _find_ready_streamlit_port()
 
 
 def _open_browser(port: int, logger: logging.Logger) -> None:
@@ -194,11 +247,10 @@ def _open_browser(port: int, logger: logging.Logger) -> None:
         logger.exception("Failed to open browser: %s", exc)
 
 
-def _streamlit_runtime_settings(port: int) -> tuple[dict[str, str], dict[str, object]]:
+def _streamlit_runtime_settings() -> tuple[dict[str, str], dict[str, object]]:
     option_values: dict[str, object] = {
         "server.headless": True,
         "browser.gatherUsageStats": False,
-        "server.port": port,
         "server.address": LOCALHOST,
         "server.baseUrlPath": "",
         "server.runOnSave": False,
@@ -208,7 +260,6 @@ def _streamlit_runtime_settings(port: int) -> tuple[dict[str, str], dict[str, ob
     env_values = {
         "STREAMLIT_SERVER_HEADLESS": "true",
         "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
-        "STREAMLIT_SERVER_PORT": str(port),
         "STREAMLIT_SERVER_ADDRESS": LOCALHOST,
         "STREAMLIT_SERVER_BASE_URL_PATH": "",
         "STREAMLIT_SERVER_RUN_ON_SAVE": "false",
@@ -218,18 +269,21 @@ def _streamlit_runtime_settings(port: int) -> tuple[dict[str, str], dict[str, ob
     return env_values, option_values
 
 
-def _wait_and_open_browser(port: int, logger: logging.Logger, notify_user=None) -> None:
-    if not _wait_for_streamlit_ready(port, STARTUP_TIMEOUT_SECONDS):
+def _wait_and_open_browser(logger: logging.Logger, notify_user=None) -> None:
+    port = _wait_for_new_streamlit_port(STARTUP_TIMEOUT_SECONDS)
+    if port is None:
+        _release_startup_lock()
         logger.error("Streamlit did not start within timeout (%ds).", STARTUP_TIMEOUT_SECONDS)
         if notify_user:
             notify_user(f"{APP_NAME} failed to start. See launcher log for details.")
         return
     _write_active_port(port)
+    _release_startup_lock()
     _open_browser(port, logger)
 
 
-def _run_streamlit(app_path: str, port: int) -> None:
-    env_values, option_values = _streamlit_runtime_settings(port)
+def _run_streamlit(app_path: str) -> None:
+    env_values, option_values = _streamlit_runtime_settings()
     os.environ.update(env_values)
 
     import streamlit.web.bootstrap as bootstrap
@@ -261,12 +315,21 @@ def main() -> int:
             _open_browser(existing_port, logger)
             return 0
 
+        if not _acquire_startup_lock(STARTUP_TIMEOUT_SECONDS):
+            logger.info("Another launcher is starting; waiting for the ready app instance.")
+            existing_port = _find_existing_instance_port(STARTUP_TIMEOUT_SECONDS)
+            if existing_port is not None:
+                logger.info("Reusing newly started launcher instance on port %s", existing_port)
+                _write_active_port(existing_port)
+                _open_browser(existing_port, logger)
+                return 0
+            raise RuntimeError(f"{APP_NAME} is already starting. Please try again.")
+
+        atexit.register(_release_startup_lock)
+        atexit.register(_clear_active_port)
         app_path = _resolve_app_path()
-        port = _select_port()
-        _write_active_port(port)
-        atexit.register(_clear_active_port, port)
-        logger.info("Selected local port: %s", port)
     except Exception as exc:
+        _release_startup_lock()
         logger.exception("Failed during launcher setup: %s", exc)
         _notify_user(f"{APP_NAME} failed to start: {exc}")
         return 1
@@ -274,13 +337,14 @@ def main() -> int:
     try:
         browser_thread = threading.Thread(
             target=_wait_and_open_browser,
-            args=(port, logger, _notify_user),
+            args=(logger, _notify_user),
             daemon=True,
         )
         browser_thread.start()
-        _run_streamlit(str(app_path), port)
+        _run_streamlit(str(app_path))
     except Exception as exc:
-        _clear_active_port(port)
+        _release_startup_lock()
+        _clear_active_port()
         logger.exception("Failed to start Streamlit: %s", exc)
         _notify_user(f"{APP_NAME} failed to start: {exc}")
         return 1

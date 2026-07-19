@@ -46,11 +46,50 @@ def test_find_existing_instance_port_clears_stale_state(tmp_path, monkeypatch):
     assert launcher._read_active_port() is None
 
 
+def test_acquire_startup_lock_replaces_stale_lock(tmp_path, monkeypatch):
+    launcher = _load_launcher_module()
+    monkeypatch.setattr(launcher, "_logs_dir", lambda: tmp_path)
+
+    lock_file = tmp_path / launcher.STARTUP_LOCK_FILE_NAME
+    lock_file.write_text("old", encoding="utf-8")
+    stale_time = launcher.time.time() - launcher.STARTUP_TIMEOUT_SECONDS - 1
+    launcher.os.utime(lock_file, (stale_time, stale_time))
+
+    assert launcher._acquire_startup_lock(launcher.STARTUP_TIMEOUT_SECONDS) is True
+    assert lock_file.read_text(encoding="utf-8").strip().isdigit()
+
+
+def test_wait_and_open_browser_uses_detected_ready_port(monkeypatch):
+    launcher = _load_launcher_module()
+    logger = logging.getLogger("test.launcher")
+
+    monkeypatch.setattr(launcher, "_wait_for_new_streamlit_port", lambda timeout: 8504)
+
+    written_ports: list[int] = []
+    released_locks = 0
+    opened_ports: list[int] = []
+
+    monkeypatch.setattr(launcher, "_write_active_port", written_ports.append)
+    monkeypatch.setattr(launcher, "_open_browser", lambda port, _logger: opened_ports.append(port))
+
+    def _release() -> None:
+        nonlocal released_locks
+        released_locks += 1
+
+    monkeypatch.setattr(launcher, "_release_startup_lock", _release)
+
+    launcher._wait_and_open_browser(logger)
+
+    assert written_ports == [8504]
+    assert released_locks == 1
+    assert opened_ports == [8504]
+
+
 def test_main_reuses_existing_instance_without_starting_new_server(monkeypatch):
     launcher = _load_launcher_module()
     logger = logging.getLogger("test.launcher")
 
-    def _unexpected_run(app_path, port):
+    def _unexpected_run(app_path):
         raise AssertionError("should not run")
 
     monkeypatch.setattr(launcher, "_configure_logger", lambda: logger)
@@ -93,12 +132,14 @@ def test_run_streamlit_sets_runtime_overrides(monkeypatch):
     monkeypatch.setitem(sys.modules, "streamlit.web", fake_streamlit_web)
     monkeypatch.setitem(sys.modules, "streamlit.web.bootstrap", fake_bootstrap)
 
-    launcher._run_streamlit("app.py", 8506)
+    launcher._run_streamlit("app.py")
 
     assert bootstrap_calls == [("app.py", False, [], {})]
     assert config_options["server.address"] == launcher.LOCALHOST
     assert config_options["server.baseUrlPath"] == ""
     assert config_options["server.runOnSave"] is False
     assert config_options["server.fileWatcherType"] == "none"
+    assert "server.port" not in config_options
     assert launcher.os.environ["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] == "none"
     assert launcher.os.environ["STREAMLIT_SERVER_BASE_URL_PATH"] == ""
+    assert "STREAMLIT_SERVER_PORT" not in launcher.os.environ
