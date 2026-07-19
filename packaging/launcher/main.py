@@ -22,7 +22,7 @@ PREFERRED_PORT = 8501
 STREAMLIT_PORT_SEARCH_RETRIES = 100
 MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
-# Frozen startup can take noticeably longer on first launch, so give the
+# Frozen startup can take noticeably longer on some systems, so give the
 # background readiness probe extra time before showing a failure dialog.
 STARTUP_TIMEOUT_SECONDS = 45
 POLL_INTERVAL_SECONDS = 0.25
@@ -127,6 +127,8 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
     startup_lock_file = _startup_lock_file()
     startup_lock_file.parent.mkdir(parents=True, exist_ok=True)
 
+    # Retry a couple of times to tolerate races where another process removes a
+    # stale lock between our existence check and cleanup attempt.
     for _ in range(3):
         try:
             fd = os.open(startup_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -329,7 +331,10 @@ def main() -> int:
                 _write_active_port(existing_port)
                 _open_browser(existing_port, logger)
                 return 0
-            raise RuntimeError(f"{APP_NAME} is already starting. Please try again.")
+            raise RuntimeError(
+                f"{APP_NAME} did not finish starting within {STARTUP_TIMEOUT_SECONDS} seconds. "
+                "Check the launcher log and try again."
+            )
 
         atexit.register(_release_startup_lock)
         atexit.register(_clear_active_port)
