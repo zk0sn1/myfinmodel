@@ -12,5 +12,11 @@ if not exist "%LAUNCHER_EXE%" (
   exit /b 1
 )
 
+echo Starting MyFinModel...
+echo The first launch can take up to about a minute on some systems.
+echo Your browser will open automatically when the app is ready.
+echo.
+
 start "" "%LAUNCHER_EXE%"
+timeout /t 20 /nobreak >nul
 exit /b 0
