@@ -7,14 +7,17 @@ See docs/ui-mockup.html for the visual layout reference.
 from __future__ import annotations
 
 import time
+import os
+from typing import TYPE_CHECKING
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-from simulation.engine import run_simulation
-from simulation.models import SimulationInputs, SimulationResults
 from ui.inputs import render_inputs
-from ui.outputs import render_outputs
 from ui.scenarios import render_scenario_controls
+
+if TYPE_CHECKING:
+    from simulation.models import SimulationInputs, SimulationResults
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -55,6 +58,39 @@ def _inject_ui_polish_css() -> None:
 
 
 _inject_ui_polish_css()
+
+
+def _inject_shutdown_beacon() -> None:
+        control_port = os.environ.get("MYFINMODEL_SHUTDOWN_CONTROL_PORT")
+        token = os.environ.get("MYFINMODEL_SHUTDOWN_TOKEN")
+        if not control_port or not token:
+                return
+
+        components.html(
+                f"""
+                <script>
+                (() => {{
+                    const shutdownUrl = 'http://127.0.0.1:{control_port}/shutdown/{token}';
+                    const sendShutdown = () => {{
+                        try {{
+                            navigator.sendBeacon(shutdownUrl, new Blob(['close'], {{ type: 'text/plain' }}));
+                        }} catch (error) {{
+                            try {{
+                                fetch(shutdownUrl, {{ method: 'POST', mode: 'no-cors', keepalive: true }});
+                            }} catch (ignored) {{}}
+                        }}
+                    }};
+                    window.addEventListener('pagehide', sendShutdown);
+                    window.addEventListener('beforeunload', sendShutdown);
+                }})();
+                </script>
+                """,
+                height=0,
+                width=0,
+        )
+
+
+_inject_shutdown_beacon()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -117,6 +153,10 @@ if existing_results is not None:
 
 # ── Handle Run button click ───────────────────────────────────────────────────
 if run_clicked:
+    # Import simulation engine only when user runs a scenario to avoid heavy
+    # NumPy/SciPy startup cost during initial app boot.
+    from simulation.engine import run_simulation
+
     inputs: SimulationInputs | None = st.session_state.get("_assembled_inputs")
     if inputs is None:
         st.sidebar.error("Fix input errors before running.")
@@ -178,6 +218,9 @@ with tabs[1]:
                     st.rerun()
 
         st.divider()
+
+        # Import results UI lazily so Plotly/Pandas modules do not slow first boot.
+        from ui.outputs import render_outputs
 
         # Results display (placeholder — will be fully implemented in Phase 4)
         render_outputs(results_obj)

@@ -7,7 +7,7 @@ from pathlib import Path
 BASE_DIR = Path(SPECPATH).resolve().parent
 
 
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 def collect_tree(source_dir: str, destination_root: str) -> list[tuple[str, str]]:
     source_path = BASE_DIR / source_dir
@@ -28,6 +28,7 @@ datas = [
     *collect_tree("simulation", "simulation"),
     *collect_tree("ui", "ui"),
     *collect_tree("utils", "utils"),
+    *collect_tree("validation", "validation"),
     *collect_data_files("streamlit"),
     *copy_metadata("streamlit"),
 ]
@@ -35,6 +36,7 @@ datas = [
 hiddenimports = [
     "streamlit",
     "streamlit.web.cli",
+    *collect_submodules("streamlit"),
 ]
 
 
@@ -42,7 +44,7 @@ block_cipher = None
 
 
 a = Analysis(
-    [str(BASE_DIR / "packaging/launcher/__main__.py")],
+    [str(BASE_DIR / "packaging/launcher/main.py")],
     pathex=[str(BASE_DIR)],
     binaries=[],
     datas=datas,

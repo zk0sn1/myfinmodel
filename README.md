@@ -52,7 +52,7 @@ Expected output:
 1. Extract the zip to a writable folder.
 2. Open the extracted `MyFinModel` folder.
 3. Double-click `launch_myfinmodel.bat`.
-4. Confirm the default browser opens on localhost and the app loads.
+4. Confirm the default browser opens on the local app URL (usually `http://localhost:8501`) and the app loads.
 
 Keep the extracted folder contents together, including `_internal` and `MyFinModelLauncher.exe`.
 
