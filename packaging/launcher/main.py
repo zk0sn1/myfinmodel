@@ -22,9 +22,11 @@ PREFERRED_PORT = 8501
 STREAMLIT_PORT_SEARCH_RETRIES = 100
 MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
-# Frozen startup can take noticeably longer on some systems, so give the
-# background readiness probe extra time before showing a failure dialog.
+# Frozen Streamlit startup imports a large scientific stack and can take
+# noticeably longer on slower Windows systems, so give the background
+# readiness probe extra time before showing a failure dialog.
 STARTUP_TIMEOUT_SECONDS = 45
+LOCK_ACQUISITION_RETRIES = 3
 POLL_INTERVAL_SECONDS = 0.25
 LOCALHOST = "127.0.0.1"
 STREAMLIT_HEALTH_PATH = "/_stcore/health"
@@ -129,7 +131,7 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
 
     # Retry a couple of times to tolerate races where another process removes a
     # stale lock between our existence check and cleanup attempt.
-    for _ in range(3):
+    for _ in range(LOCK_ACQUISITION_RETRIES):
         try:
             fd = os.open(startup_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:

@@ -52,7 +52,8 @@ def test_acquire_startup_lock_replaces_stale_lock(tmp_path, monkeypatch):
 
     lock_file = tmp_path / launcher.STARTUP_LOCK_FILE_NAME
     lock_file.write_text("old", encoding="utf-8")
-    stale_time = launcher.time.time() - launcher.STARTUP_TIMEOUT_SECONDS - 1
+    stale_margin_seconds = 1
+    stale_time = launcher.time.time() - (launcher.STARTUP_TIMEOUT_SECONDS + stale_margin_seconds)
     launcher.os.utime(lock_file, (stale_time, stale_time))
 
     assert launcher._acquire_startup_lock(launcher.STARTUP_TIMEOUT_SECONDS) is True
