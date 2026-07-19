@@ -148,9 +148,11 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
                 continue
             return False
 
-        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
-            lock_file.write(str(os.getpid()))
-        return True
+        try:
+            os.write(fd, str(os.getpid()).encode("utf-8"))
+            return True
+        finally:
+            os.close(fd)
 
     return False
 
@@ -279,7 +281,7 @@ def _streamlit_runtime_settings() -> tuple[dict[str, str], dict[str, object]]:
     return env_values, option_values
 
 
-def _wait_and_open_browser(logger: logging.Logger, notify_user=None) -> None:
+def _wait_and_open_browser(logger: logging.Logger, notify_user=None, record_port=None) -> None:
     port = _wait_for_new_streamlit_port(STARTUP_TIMEOUT_SECONDS)
     if port is None:
         _release_startup_lock()
@@ -288,6 +290,8 @@ def _wait_and_open_browser(logger: logging.Logger, notify_user=None) -> None:
             notify_user(f"{APP_NAME} failed to start. See launcher log for details.")
         return
     _write_active_port(port)
+    if record_port is not None:
+        record_port(port)
     _release_startup_lock()
     _open_browser(port, logger)
 
@@ -307,6 +311,7 @@ def _run_streamlit(app_path: str) -> None:
 
 def main() -> int:
     logger = _configure_logger()
+    started_port: list[int | None] = [None]
 
     def _notify_user(message: str) -> None:
         """Best-effort user-visible error for windowless launcher builds."""
@@ -316,6 +321,14 @@ def main() -> int:
             ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, 0x10)
         except Exception:
             print(message)
+
+    def _record_started_port(port: int) -> None:
+        started_port[0] = port
+
+    def _cleanup_launcher_state() -> None:
+        if started_port[0] is not None:
+            _clear_active_port(started_port[0])
+        _release_startup_lock()
 
     try:
         existing_port = _find_existing_instance_port(STARTUP_TIMEOUT_SECONDS)
@@ -338,11 +351,10 @@ def main() -> int:
                 "Check the launcher log and try again."
             )
 
-        atexit.register(_release_startup_lock)
-        atexit.register(_clear_active_port)
+        atexit.register(_cleanup_launcher_state)
         app_path = _resolve_app_path()
     except Exception as exc:
-        _release_startup_lock()
+        _cleanup_launcher_state()
         logger.exception("Failed during launcher setup: %s", exc)
         _notify_user(f"{APP_NAME} failed to start: {exc}")
         return 1
@@ -350,14 +362,13 @@ def main() -> int:
     try:
         browser_thread = threading.Thread(
             target=_wait_and_open_browser,
-            args=(logger, _notify_user),
+            args=(logger, _notify_user, _record_started_port),
             daemon=True,
         )
         browser_thread.start()
         _run_streamlit(str(app_path))
     except Exception as exc:
-        _release_startup_lock()
-        _clear_active_port()
+        _cleanup_launcher_state()
         logger.exception("Failed to start Streamlit: %s", exc)
         _notify_user(f"{APP_NAME} failed to start: {exc}")
         return 1
