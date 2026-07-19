@@ -23,8 +23,9 @@ STREAMLIT_PORT_SEARCH_RETRIES = 100
 MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
 # Frozen Streamlit startup imports a large scientific stack; portable launches
-# have already been observed taking ~15 seconds, so use a 45-second window to
-# leave headroom on slower Windows systems before showing a failure dialog.
+# have already been observed taking ~15 seconds, so use a 45-second window
+# (roughly 3x that startup time) to leave headroom on slower Windows systems
+# before showing a failure dialog.
 STARTUP_TIMEOUT_SECONDS = 45
 LOCK_ACQUISITION_RETRIES = 3
 POLL_INTERVAL_SECONDS = 0.25
@@ -145,6 +146,7 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
     # stale lock between our existence check and cleanup attempt.
     for _ in range(LOCK_ACQUISITION_RETRIES):
         try:
+            # O_CREAT | O_EXCL makes lock creation atomic across processes.
             fd = os.open(startup_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
             try:
@@ -242,6 +244,7 @@ def _find_ready_streamlit_port() -> int | None:
 
 
 def _wait_for_new_streamlit_port(timeout_seconds: int) -> int | None:
+    """Poll until any ready Streamlit instance is detected on candidate ports."""
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         ready_port = _find_ready_streamlit_port()
