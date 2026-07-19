@@ -17,8 +17,8 @@ from urllib import request as urllib_request
 
 APP_NAME = "MyFinModel"
 PREFERRED_PORT = 8501
-# Match Streamlit's built-in port search window so the launcher can detect the
-# actual fallback port that the bundled server ends up using.
+# Match the current Streamlit 1.58 built-in port search window so the launcher
+# can detect the actual fallback port that the bundled server ends up using.
 STREAMLIT_PORT_SEARCH_RETRIES = 100
 MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
@@ -40,6 +40,7 @@ class LauncherState:
     def __init__(self) -> None:
         self.started_port: int | None = None
         self.owns_startup_lock = False
+        self.cleaned_up = False
 
 
 def _logs_dir() -> Path:
@@ -142,8 +143,8 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
     startup_lock_file = _startup_lock_file()
     startup_lock_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Retry a couple of times to tolerate races where another process removes a
-    # stale lock between our existence check and cleanup attempt.
+    # A few retries are enough here because the only expected race is another
+    # process deleting a stale lock between our existence check and unlink.
     for _ in range(LOCK_ACQUISITION_RETRIES):
         try:
             # O_CREAT | O_EXCL makes lock creation atomic across processes.
@@ -343,6 +344,9 @@ def main() -> int:
             print(message)
 
     def _cleanup_launcher_state() -> None:
+        if state.cleaned_up:
+            return
+        state.cleaned_up = True
         if state.started_port is not None:
             _clear_active_port(state.started_port)
         if state.owns_startup_lock:
@@ -367,7 +371,7 @@ def main() -> int:
                 return 0
             raise RuntimeError(
                 f"{APP_NAME} did not finish starting within {STARTUP_TIMEOUT_SECONDS} seconds. "
-                "Check the launcher log and try again."
+                f"Check {_logs_dir() / 'launcher.log'} and try again."
             )
 
         state.owns_startup_lock = True
