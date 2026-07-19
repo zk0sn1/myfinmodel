@@ -17,9 +17,13 @@ from urllib import request as urllib_request
 
 APP_NAME = "MyFinModel"
 PREFERRED_PORT = 8501
+# Match Streamlit's built-in port search window so the launcher can detect the
+# actual fallback port that the bundled server ends up using.
 STREAMLIT_PORT_SEARCH_RETRIES = 100
 MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
+# Frozen startup can take noticeably longer on first launch, so give the
+# background readiness probe extra time before showing a failure dialog.
 STARTUP_TIMEOUT_SECONDS = 45
 POLL_INTERVAL_SECONDS = 0.25
 LOCALHOST = "127.0.0.1"
@@ -123,7 +127,7 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
     startup_lock_file = _startup_lock_file()
     startup_lock_file.parent.mkdir(parents=True, exist_ok=True)
 
-    while True:
+    for _ in range(3):
         try:
             fd = os.open(startup_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
@@ -143,6 +147,8 @@ def _acquire_startup_lock(timeout_seconds: int) -> bool:
         with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
             lock_file.write(str(os.getpid()))
         return True
+
+    return False
 
 
 def _release_startup_lock() -> None:

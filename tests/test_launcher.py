@@ -66,22 +66,22 @@ def test_wait_and_open_browser_uses_detected_ready_port(monkeypatch):
     monkeypatch.setattr(launcher, "_wait_for_new_streamlit_port", lambda timeout: 8504)
 
     written_ports: list[int] = []
-    released_locks = 0
+    released_lock_count = 0
     opened_ports: list[int] = []
 
     monkeypatch.setattr(launcher, "_write_active_port", written_ports.append)
     monkeypatch.setattr(launcher, "_open_browser", lambda port, _logger: opened_ports.append(port))
 
     def _release() -> None:
-        nonlocal released_locks
-        released_locks += 1
+        nonlocal released_lock_count
+        released_lock_count += 1
 
     monkeypatch.setattr(launcher, "_release_startup_lock", _release)
 
     launcher._wait_and_open_browser(logger)
 
     assert written_ports == [8504]
-    assert released_locks == 1
+    assert released_lock_count == 1
     assert opened_ports == [8504]
 
 
