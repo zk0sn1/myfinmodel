@@ -22,9 +22,9 @@ PREFERRED_PORT = 8501
 STREAMLIT_PORT_SEARCH_RETRIES = 100
 MAX_PORT = PREFERRED_PORT + STREAMLIT_PORT_SEARCH_RETRIES
 FALLBACK_PORTS = range(8502, MAX_PORT + 1)
-# Frozen Streamlit startup imports a large scientific stack and can take
-# noticeably longer on slower Windows systems, so give the background
-# readiness probe extra time before showing a failure dialog.
+# Frozen Streamlit startup imports a large scientific stack; portable launches
+# have already been observed taking ~15 seconds, so use a 45-second window to
+# leave headroom on slower Windows systems before showing a failure dialog.
 STARTUP_TIMEOUT_SECONDS = 45
 LOCK_ACQUISITION_RETRIES = 3
 POLL_INTERVAL_SECONDS = 0.25
@@ -33,6 +33,12 @@ STREAMLIT_HEALTH_PATH = "/_stcore/health"
 ACTIVE_PORT_FILE_NAME = "active-port.txt"
 STARTUP_LOCK_FILE_NAME = "launcher-starting.lock"
 HTTP_PROBE_TIMEOUT_SECONDS = 1
+
+
+class LauncherState:
+    def __init__(self) -> None:
+        self.started_port: int | None = None
+        self.owns_startup_lock = False
 
 
 def _logs_dir() -> Path:
@@ -126,6 +132,12 @@ def _write_active_port(port: int) -> None:
 
 
 def _acquire_startup_lock(timeout_seconds: int) -> bool:
+    """Acquire the startup lock for this launcher process.
+
+    Returns True when this process created the lock file. Returns False when
+    another process still holds a non-stale lock. The timeout is used only to
+    decide when an existing lock is stale enough to delete and retry.
+    """
     startup_lock_file = _startup_lock_file()
     startup_lock_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -281,18 +293,23 @@ def _streamlit_runtime_settings() -> tuple[dict[str, str], dict[str, object]]:
     return env_values, option_values
 
 
-def _wait_and_open_browser(logger: logging.Logger, notify_user=None, record_port=None) -> None:
+def _wait_and_open_browser(
+    logger: logging.Logger,
+    state: LauncherState,
+    notify_user=None,
+) -> None:
     port = _wait_for_new_streamlit_port(STARTUP_TIMEOUT_SECONDS)
     if port is None:
         _release_startup_lock()
+        state.owns_startup_lock = False
         logger.error("Streamlit did not start within timeout (%ds).", STARTUP_TIMEOUT_SECONDS)
         if notify_user:
             notify_user(f"{APP_NAME} failed to start. See launcher log for details.")
         return
     _write_active_port(port)
-    if record_port is not None:
-        record_port(port)
+    state.started_port = port
     _release_startup_lock()
+    state.owns_startup_lock = False
     _open_browser(port, logger)
 
 
@@ -311,7 +328,7 @@ def _run_streamlit(app_path: str) -> None:
 
 def main() -> int:
     logger = _configure_logger()
-    started_port: list[int | None] = [None]
+    state = LauncherState()
 
     def _notify_user(message: str) -> None:
         """Best-effort user-visible error for windowless launcher builds."""
@@ -322,13 +339,12 @@ def main() -> int:
         except Exception:
             print(message)
 
-    def _record_started_port(port: int) -> None:
-        started_port[0] = port
-
     def _cleanup_launcher_state() -> None:
-        if started_port[0] is not None:
-            _clear_active_port(started_port[0])
-        _release_startup_lock()
+        if state.started_port is not None:
+            _clear_active_port(state.started_port)
+        if state.owns_startup_lock:
+            _release_startup_lock()
+            state.owns_startup_lock = False
 
     try:
         existing_port = _find_existing_instance_port(STARTUP_TIMEOUT_SECONDS)
@@ -351,6 +367,7 @@ def main() -> int:
                 "Check the launcher log and try again."
             )
 
+        state.owns_startup_lock = True
         atexit.register(_cleanup_launcher_state)
         app_path = _resolve_app_path()
     except Exception as exc:
@@ -362,7 +379,7 @@ def main() -> int:
     try:
         browser_thread = threading.Thread(
             target=_wait_and_open_browser,
-            args=(logger, _notify_user, _record_started_port),
+            args=(logger, state, _notify_user),
             daemon=True,
         )
         browser_thread.start()

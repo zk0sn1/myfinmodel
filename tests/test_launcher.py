@@ -79,7 +79,7 @@ def test_wait_and_open_browser_uses_detected_ready_port(monkeypatch):
 
     monkeypatch.setattr(launcher, "_release_startup_lock", _release)
 
-    launcher._wait_and_open_browser(logger)
+    launcher._wait_and_open_browser(logger, launcher.LauncherState())
 
     assert written_ports == [8504]
     assert released_lock_count == 1
