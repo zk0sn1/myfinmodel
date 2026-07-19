@@ -49,6 +49,9 @@ def test_main_reuses_existing_instance_without_starting_new_server(monkeypatch):
     launcher = _load_launcher_module()
     logger = logging.getLogger("test.launcher")
 
+    def _unexpected_run(app_path, port):
+        raise AssertionError("should not run")
+
     monkeypatch.setattr(launcher, "_configure_logger", lambda: logger)
     monkeypatch.setattr(launcher, "_find_existing_instance_port", lambda timeout: 8502)
 
@@ -57,11 +60,7 @@ def test_main_reuses_existing_instance_without_starting_new_server(monkeypatch):
 
     opened_ports: list[int] = []
     monkeypatch.setattr(launcher, "_open_browser", lambda port, _logger: opened_ports.append(port))
-    monkeypatch.setattr(
-        launcher,
-        "_run_streamlit",
-        lambda app_path, port: (_ for _ in ()).throw(AssertionError("should not run")),
-    )
+    monkeypatch.setattr(launcher, "_run_streamlit", _unexpected_run)
 
     assert launcher.main() == 0
     assert written_ports == [8502]

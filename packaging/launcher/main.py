@@ -24,6 +24,7 @@ POLL_INTERVAL_SECONDS = 0.25
 LOCALHOST = "127.0.0.1"
 STREAMLIT_HEALTH_PATH = "/_stcore/health"
 ACTIVE_PORT_FILE_NAME = "active-port.txt"
+HTTP_PROBE_BODY_BYTES = 256
 
 
 def _logs_dir() -> Path:
@@ -145,7 +146,12 @@ def _http_ok(
             if expected_body is None:
                 return True
 
-            body = response.read(256).decode("utf-8", errors="ignore").strip().lower()
+            body = (
+                response.read(HTTP_PROBE_BODY_BYTES)
+                .decode("utf-8", errors="ignore")
+                .strip()
+                .lower()
+            )
             return expected_body.lower() in body
     except (OSError, ValueError, urllib_error.URLError):
         return False
